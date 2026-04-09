@@ -9,45 +9,55 @@ app.use(express.json());
 let ultimaActualizacion = null;
 let datosPrecios = [];
 
-// Función que hace el scraping real
+// Scraper mejorado con más espera y logs
 async function actualizarPrecios() {
+  console.log('🔄 Iniciando scraping de DGEHM...');
   try {
     const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
     
     await page.goto('https://sinapp.dgehm.gob.sv/drhm/estadisticas.aspx?uid=2', {
       waitUntil: 'networkidle2',
-      timeout: 60000
+      timeout: 90000
     });
 
+    // Espera más tiempo y busca la tabla
+    await page.waitForSelector('table', { timeout: 60000 });
+
     const datos = await page.evaluate(() => {
-      const filas = Array.from(document.querySelectorAll('table tr')).slice(1);
-      return filas.map(fila => {
-        const celdas = fila.querySelectorAll('td');
+      const rows = Array.from(document.querySelectorAll('table tr'));
+      console.log('Filas encontradas:', rows.length); // para debug
+
+      return rows.slice(1).map(row => {
+        const cells = row.querySelectorAll('td');
         return {
-          nombre: celdas[0] ? celdas[0].innerText.trim() : '',
-          ubicacion: celdas[1] ? celdas[1].innerText.trim() : '',
-          regular: celdas[2] ? parseFloat(celdas[2].innerText.trim()) : null,
-          especial: celdas[3] ? parseFloat(celdas[3].innerText.trim()) : null,
-          diesel: celdas[4] ? parseFloat(celdas[4].innerText.trim()) : null,
-          fecha: celdas[5] ? celdas[5].innerText.trim() : ''
+          nombre: cells[0] ? cells[0].innerText.trim() : '',
+          ubicacion: cells[1] ? cells[1].innerText.trim() : '',
+          regular: cells[2] ? parseFloat(cells[2].innerText.trim()) : null,
+          especial: cells[3] ? parseFloat(cells[3].innerText.trim()) : null,
+          diesel: cells[4] ? parseFloat(cells[4].innerText.trim()) : null,
+          fecha: cells[5] ? cells[5].innerText.trim() : ''
         };
-      }).filter(r => r.nombre);
+      }).filter(r => r.nombre && r.nombre.length > 3);
     });
 
     await browser.close();
 
-    datosPrecios = datos;
-    ultimaActualizacion = new Date();
-    console.log('✅ Precios actualizados desde DGEHM');
+    if (datos.length > 0) {
+      datosPrecios = datos;
+      ultimaActualizacion = new Date();
+      console.log(`✅ Éxito: ${datos.length} estaciones cargadas`);
+    } else {
+      console.log('⚠️ No se encontraron estaciones en la tabla');
+    }
+
     return datos;
   } catch (error) {
-    console.error('Error en scraping:', error);
+    console.error('❌ Error en scraping:', error.message);
     return [];
   }
 }
 
-// Ruta para que el dashboard pida los datos
 app.get('/precios', async (req, res) => {
   if (datosPrecios.length === 0) {
     await actualizarPrecios();
@@ -58,10 +68,9 @@ app.get('/precios', async (req, res) => {
   });
 });
 
-// Actualizar automáticamente cada 30 minutos
-setInterval(actualizarPrecios, 30 * 60 * 1000);
+setInterval(actualizarPrecios, 30 * 60 * 1000); // cada 30 minutos
 
 app.listen(3000, () => {
-  console.log('🚀 PriceGuard Backend corriendo en puerto 3000');
-  actualizarPrecios(); // Primera actualización al encender
+  console.log('🚀 Backend iniciado');
+  actualizarPrecios(); // primera carga
 });
