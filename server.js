@@ -9,7 +9,7 @@ app.use(express.json());
 let ultimaActualizacion = null;
 let datosPrecios = [];
 
-// Scraper mejorado con más espera y logs
+// Scraper MEJORADO y más paciente
 async function actualizarPrecios() {
   console.log('🔄 Iniciando scraping de DGEHM...');
   try {
@@ -18,15 +18,24 @@ async function actualizarPrecios() {
     
     await page.goto('https://sinapp.dgehm.gob.sv/drhm/estadisticas.aspx?uid=2', {
       waitUntil: 'networkidle2',
-      timeout: 90000
+      timeout: 120000
     });
 
-    // Espera más tiempo y busca la tabla
+    // Espera más tiempo y busca cualquier tabla grande
     await page.waitForSelector('table', { timeout: 60000 });
 
     const datos = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('table tr'));
-      console.log('Filas encontradas:', rows.length); // para debug
+      // Buscamos todas las tablas y tomamos la primera grande
+      const tables = document.querySelectorAll('table');
+      let rows = [];
+
+      for (let table of tables) {
+        const tempRows = Array.from(table.querySelectorAll('tr'));
+        if (tempRows.length > 10) {  // tomamos la tabla más grande
+          rows = tempRows;
+          break;
+        }
+      }
 
       return rows.slice(1).map(row => {
         const cells = row.querySelectorAll('td');
@@ -38,7 +47,7 @@ async function actualizarPrecios() {
           diesel: cells[4] ? parseFloat(cells[4].innerText.trim()) : null,
           fecha: cells[5] ? cells[5].innerText.trim() : ''
         };
-      }).filter(r => r.nombre && r.nombre.length > 3);
+      }).filter(r => r.nombre && r.nombre.length > 2);
     });
 
     await browser.close();
@@ -46,14 +55,14 @@ async function actualizarPrecios() {
     if (datos.length > 0) {
       datosPrecios = datos;
       ultimaActualizacion = new Date();
-      console.log(`✅ Éxito: ${datos.length} estaciones cargadas`);
+      console.log(`✅ ÉXITO: Se cargaron ${datos.length} estaciones`);
     } else {
-      console.log('⚠️ No se encontraron estaciones en la tabla');
+      console.log('⚠️ No se encontraron estaciones. La estructura de la página cambió.');
     }
 
     return datos;
   } catch (error) {
-    console.error('❌ Error en scraping:', error.message);
+    console.error('❌ Error grave:', error.message);
     return [];
   }
 }
@@ -68,9 +77,9 @@ app.get('/precios', async (req, res) => {
   });
 });
 
-setInterval(actualizarPrecios, 30 * 60 * 1000); // cada 30 minutos
+setInterval(actualizarPrecios, 30 * 60 * 1000);
 
 app.listen(3000, () => {
-  console.log('🚀 Backend iniciado');
+  console.log('🚀 Backend iniciado correctamente');
   actualizarPrecios(); // primera carga
 });
